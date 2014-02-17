@@ -129,8 +129,9 @@ parseparameters(){
   done
 }
 
+# ${1} disk to partitionate
 partition(){
-  gdisk ${TARGET}
+  gdisk ${1}
 }
 
 install_package(){
@@ -160,7 +161,7 @@ install_package_pacstrap(){
   fi
 
   log "\t${2} packages installation start ..."
-  #    pacstrap ${1} ${2}
+  pacstrap ${1} ${2}
   log "\t${2} packages installation done!\n"
 }
 
@@ -171,12 +172,13 @@ install_package_chroot(){
     echo "usage install_package_chroot mountpoint cahe-directory package's_name"
   fi
 
-  CACHE_DIRECTORY=${MOUNTPOINT}/var/cache/pacman/pkg
+  CACHE_DIRECTORY=${1}/var/cache/pacman/pkg
   log "\t${2} packages installation start ..."
-#    pacman -r ${1} --cachedir ${2} -S {3}
+  pacman -r ${1} --cachedir ${CACHE_DIRECTORY} -S {2}
   log "\t${2} packages installation done!\n"
 }
  
+# ${1} = packages' name
 install_packages(){
   log "packages installation start ...\n"
 
@@ -202,78 +204,83 @@ install_packages(){
   log " packages installation done!\n"
 }
 
-configure(){
-  log "system configuration start ...\n"
-  # generate the fstab
-  log "fstab generation start ..."
-  #touch ${MOUNTPOINT}/etc/fstab
-  #genfstab -U ${MOUNTPOINT} >> ${MOUNTPOINT}/etc/fstab
-  log "fstab generation done!\n"
-  # set the computer's name
-  log "system's name definition start ..."
-  #touch ${MOUNTPOINT}/etc/hostname
-  #echo ${SYSTEM_NAME} >> ${MOUNTPOINT}/etc/hostname
-  log "system's name definition done!\n"
-
-  # set the local time
-  log "local time definition start ..."
-  #ln -s ${MOUNTPOINT}/usr/share/zoneinfo/Europe/Paris ${MOUNTPOINT}/etc/localtime
-  log "local time definition done!\n"
-
-  # set the local
-  log "local definition start ..."
-  #mv ${MOUNTPOINT}/etc/local.gen ${MOUNTPOINT}/etc/local.gen.bkp
-  #touch ${MOUNTPOINT}/etc/local.gen
-  #echo ${LOCALE}\ UTF-8 >> ${MOUNTPOINT}/etc/local.gen
-  #echo ${LOCALE}\ ISO-8859-1>> ${MOUNTPOINT}/etc/local.gen
-  #echo LANG=\"${LOCALE}\" >> ${MOUNTPOINT}/etc/locale.conf
-  log "local definition done!\n"
-
-  # set the keymap
-  log "keymap definition start ..."
-  #echo KEYMAP=${KEYMAP} >> ${MOUNTPOINT}/etc/vconsole.conf
-  log "keymap definition done!\n"
- 
-  # create initial RAM disk
-  log "RAM disk creation start ..."
-  #chroot ${MOUNTPOINT} mkinitcpio -p linux
-  log "RAM disk creation done!\n"
-
-
-  # optimise pacman
-  if [[ ${PACMAN_OPTIMISATION} -eq 1 ]];
-    then
-      log "pacman optimisation start ..."
-      install_packages reflector
-        #chroot ${MOUNTPOINT} reflector --verbose -l 200 --sort rate --save ${ARCH_SYS}/etc/pacman.d/mirrorlist
-      log "pacman optimisation done!\n"
-        
-  fi
- 
-  log "pacman database update start ..."
-  #chroot ${MOUNTPOINT} pacman -Sy
-  log "pacman database update done!\n"
- 
- 
-  # configure bootloader
+# ${1} bootloader's name
+configure_bootloader(){
   log "bootloader installation start ..."
-  case ${BOOTLOADER} in
+  case ${1} in
     "syslinux")
       log "syslinux configuration"
-  #    syslinux-install_update -iam
-  #    chroot ${MOUNTPOINT} vim /boot/syslinux/syslinux.conf
+      syslinux-install_update -iam
+      chroot ${MOUNTPOINT} vim /boot/syslinux/syslinux.conf
       ;;
     "grub")
       log "grub configuration"
-  #    grub-install --target=i386-pc --recheck --debug ${TARGET}
-  #    grub-mkconfig -o /boot/grub/grub.cfg
-  #    chroot ${MOUNTPOINT} vim /boot/grub/grub.cfg
+      grub-install --target=i386-pc --recheck --debug ${TARGET}
+      grub-mkconfig -o /boot/grub/grub.cfg
+      chroot ${MOUNTPOINT} vim /boot/grub/grub.cfg
       ;;
     *)
       echo "bootloader (syslinux | grub)"
       exit 4
   esac
   log "bootloader installation done!\n"
+}
+
+# ${1} pacman optimisation
+optimize_pacman(){
+  if [[ ${1} -eq 1 ]];
+    then
+      log "pacman optimisation start ..."
+      install_packages reflector
+      chroot ${MOUNTPOINT} reflector --verbose -l 200 --sort rate --save ${ARCH_SYS}/etc/pacman.d/mirrorlist
+      log "pacman optimisation done!\n"
+        
+  fi
+}
+
+configure(){
+  log "system configuration start ...\n"
+  # generate the fstab
+  log "fstab generation start ..."
+  touch ${MOUNTPOINT}/etc/fstab
+  genfstab -U ${MOUNTPOINT} >> ${MOUNTPOINT}/etc/fstab
+  log "fstab generation done!\n"
+  # set the computer's name
+  log "system's name definition start ..."
+  touch ${MOUNTPOINT}/etc/hostname
+  echo ${SYSTEM_NAME} >> ${MOUNTPOINT}/etc/hostname
+  log "system's name definition done!\n"
+
+  # set the local time
+  log "local time definition start ..."
+  ln -s ${MOUNTPOINT}/usr/share/zoneinfo/Europe/Paris ${MOUNTPOINT}/etc/localtime
+  log "local time definition done!\n"
+
+  # set the local
+  log "local definition start ..."
+  mv ${MOUNTPOINT}/etc/local.gen ${MOUNTPOINT}/etc/local.gen.bkp
+  touch ${MOUNTPOINT}/etc/local.gen
+  echo ${LOCALE}\ UTF-8 >> ${MOUNTPOINT}/etc/local.gen
+  echo ${LOCALE}\ ISO-8859-1>> ${MOUNTPOINT}/etc/local.gen
+  echo LANG=\"${LOCALE}\" >> ${MOUNTPOINT}/etc/locale.conf
+  log "local definition done!\n"
+
+  # set the keymap
+  log "keymap definition start ..."
+  echo KEYMAP=${KEYMAP} >> ${MOUNTPOINT}/etc/vconsole.conf
+  log "keymap definition done!\n"
+ 
+  # create initial RAM disk
+  log "RAM disk creation start ..."
+  chroot ${MOUNTPOINT} mkinitcpio -p linux
+  log "RAM disk creation done!\n"
+
+
+  # optimise pacman
+  optimize_pacman ${PACMAN_OPTIMISATION}
+ 
+  # configure bootloader
+  configure_bootloader ${BOOTLOADER}
 
   log "system configuration done!\n"
 }
@@ -284,7 +291,7 @@ unmount_all_partitions(){
  
 echo "Installation start ..."
 parseparameters $*
-partition
+partition ${TARGET}
 printsummary
 install_packages ${PACKAGES}
 configure
