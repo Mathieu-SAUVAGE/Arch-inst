@@ -8,26 +8,31 @@ INSTALLATION_MODE="pacstrap"
 LOCALE="en_US"
 KEYMAP="cz-qwertz"
 ARCHITECTURE=$(uname -m) # i686  | x86_64
-VERBOSE=0
-PACMAN_OPTIMISATION=0
+
 ROOT_PASSWORD=root
 USER_NAME=
 USER_PASSWORD=
 PACKAGES="base base-devel ${BOOTLOADER}"
+X_SERVER_PACKAGES="xorg-server xorg-xinit synaptics"
 
+VERBOSE=0
+PACMAN_OPTIMISATION=0
+INSTALl_X_SERVER=0
+
+# $* log data
 log(){
   if [[ ${VERBOSE} -eq 1 ]]; then
       echo -e $*
   fi
 }
 
-printhelp()
-{
+printhelp(){
     echo "-b (grub | syslinux)     Define the bootloader to installation. If this option is not used syslinux is installed by defaut."
     echo "-m                       Define the mountpoint used to install Archlinux. By defaut ${0} will use /mnt as mountpoint"
     echo "-i (pacstrap | chroot)   Define the installation mode. By defaut ${0} will use pacstrap mode."
     echo "-k                       Define the new system's locale. By default ${0} will use en_US."
     echo "-l                       Define the new system's keymap. By default ${0} will use cz-qwertz."
+    echo "-x                       Install X server."
 }
 
 printusage(){
@@ -52,15 +57,12 @@ printsummary(){
   log "packages = "${PACKAGES}
   log "--------------------------------------------"
   log "verbose = "${VERBOSE}
+  log "install x server = "${VERBOSE}
   log "pacman optimisation = "${PACMAN_OPTIMISATION}
   log "--------------------------------------------"
 }
 
-
-
 askconfirmation(){
-  printsummary
-
 #  confirmation=""
 #  
 #  while [ "$confirmation" != "y" ] || [ "$confirmation" != "yes" ] || [ "$confirmation" != "n" ] || [ "$confirmation" != "no" ];
@@ -104,6 +106,9 @@ parseparameters(){
       o)
         PACMAN_OPTIMISATION=1
         ;;
+      x)
+        INSTALl_X_SERVER=1
+        ;;
       ?)   
         printusage
         exit 2
@@ -127,11 +132,6 @@ parseparameters(){
     PACKAGES=${PACKAGES}" "$1
     shift
   done
-}
-
-# ${1} disk to partitionate
-partition(){
-  gdisk ${1}
 }
 
 install_package(){
@@ -181,10 +181,6 @@ install_package_chroot(){
 # ${1} = packages' name
 install_packages(){
   log "packages installation start ...\n"
-
-  if [[ "${INSTALLATION_MODE}" == "chroot" ]]; then
-    mkdir -p "${MOUNTPOINT}"/var/{cache/pacman/pkg,lib/pacman} "${MOUNTPOINT}"/{dev,proc,sys,run,tmp,etc,boot,root}
-  fi
 
   while [[ "${1}" != "" ]]; do
     case ${INSTALLATION_MODE} in
@@ -262,7 +258,8 @@ configure(){
   touch ${MOUNTPOINT}/etc/local.gen
   echo ${LOCALE}\ UTF-8 >> ${MOUNTPOINT}/etc/local.gen
   echo ${LOCALE}\ ISO-8859-1>> ${MOUNTPOINT}/etc/local.gen
-  echo LANG=\"${LOCALE}\" >> ${MOUNTPOINT}/etc/locale.conf
+  chroot ${MOUNTPOINT}  locale-gen
+  echo LANG=\"${LOCALE}".UTF-8"\" >> ${MOUNTPOINT}/etc/locale.conf
   log "local definition done!\n"
 
   # set the keymap
@@ -290,11 +287,27 @@ unmount_all_partitions(){
 }
  
 echo "Installation start ..."
+# parse script parameters
 parseparameters $*
-partition ${TARGET}
+# print the summary
 printsummary
+
+# update pacman
+pacman -Sy
+# create all directories if needed
+if [[ "${INSTALLATION_MODE}" == "chroot" ]]; then
+  mkdir -p "${MOUNTPOINT}"/var/{cache/pacman/pkg,lib/pacman} "${MOUNTPOINT}"/{dev,proc,sys,run,tmp,etc,boot,root}
+fi
+# install base system packages
 install_packages ${PACKAGES}
+# install X server if needed
+if [[ ${INSTALl_X_SERVER} ]]; then
+  install_packages ${X_SERVER_PACKAGES}
+  chroot ${MOUNTPOINT} cp /etc/skel/.xinitrc ~
+fi
+# configure base system
 configure
+# unmount all mounted partitions
 unmount_all_partitions
 echo "Your archlinux installation is done ;)"
 exit 0
