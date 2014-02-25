@@ -13,11 +13,11 @@ ROOT_PASSWORD=root
 USER_NAME=
 USER_PASSWORD=
 PACKAGES="base base-devel ${BOOTLOADER}"
-X_SERVER_PACKAGES="xorg-server xorg-xinit synaptics"
+X_SERVER_PACKAGES="xorg-server xorg-xinit"
 
 VERBOSE=0
 PACMAN_OPTIMISATION=0
-INSTALl_X_SERVER=0
+INSTALL_X_SERVER=0
 
 # $* log data
 log(){
@@ -32,6 +32,7 @@ printhelp(){
     echo "-i (pacstrap | chroot)   Define the installation mode. By defaut ${0} will use pacstrap mode."
     echo "-k                       Define the new system's locale. By default ${0} will use en_US."
     echo "-l                       Define the new system's keymap. By default ${0} will use cz-qwertz."
+    echo "-v                       Enable verbose mode."
     echo "-x                       Install X server."
 }
 
@@ -105,13 +106,19 @@ parseparameters(){
         ;;
       o)
         PACMAN_OPTIMISATION=1
+        PACKAGES=${PACKAGES}" reflector"
         ;;
       x)
-        INSTALl_X_SERVER=1
+        INSTALL_X_SERVER=1
+        PACKAGES=${PACKAGES}" "${X_SERVER_PACKAGES}
         ;;
       ?)   
         printusage
         exit 2
+      :)
+        echo "Option -$OPTARG requires an argument."
+        exit 1
+        ;;
     esac
   done
  
@@ -134,70 +141,60 @@ parseparameters(){
   done
 }
 
-install_package(){
-  if [[ $# -lt 3 ]]; then
-    echo "usage install_package instalation-mode mountpoint"
-  fi
-
-  case ${INSTALLATION_MODE} in
-    "pacstrap")
-      log "\tbase packages installation start ..."
-      #    pacstrap ${MOUNTPOINT} base base-devel
-      log "\tbase packages installation done!\n"
-      ;;
-    "chroot")
-      ;;
-    *)
-      echo "instalation-mode (pactsrap | chroot)"
-      exit 3
-  esac
-}
-
 # ${1} = mountpoint
-# ${2} = package's name
+# ${2} = packages' name
 install_package_pacstrap(){
   if [[ ${#} -lt 2 ]]; then
     echo "usage install_package_pacstrap mountpoint package's_name"
   fi
-
   log "\t${2} packages installation start ..."
-  pacstrap ${1} ${2}
+  MOUNT=${1}
+  shift
+  pacstrap ${MOUNT} ${*}
   log "\t${2} packages installation done!\n"
 }
 
 # ${1} = mountpoint
-# ${2} = package's name
+# ${2} = packages' name
 install_package_chroot(){
   if [[ ${#} -lt 2 ]]; then
     echo "usage install_package_chroot mountpoint cahe-directory package's_name"
   fi
-
-  CACHE_DIRECTORY=${1}/var/cache/pacman/pkg
   log "\t${2} packages installation start ..."
-  pacman -r ${1} --cachedir ${CACHE_DIRECTORY} -S {2}
+  MOUNT=${1}
+  shift
+  CACHE_DIRECTORY=${MOUNT}/var/cache/pacman/pkg
+  pacman -r ${MOUNT} --cachedir ${CACHE_DIRECTORY} -S ${*}
   log "\t${2} packages installation done!\n"
 }
  
-# ${1} = packages' name
+# ${*} = packages' name
 install_packages(){
   log "packages installation start ...\n"
 
-  while [[ "${1}" != "" ]]; do
-    case ${INSTALLATION_MODE} in
-      "pacstrap")
-          install_package_pacstrap ${MOUNTPOINT} ${1}
-        ;;
-      "chroot")
-          install_package_chroot ${MOUNTPOINT} ${1}
-        ;;
-      *)
+  case ${INSTALLATION_MODE} in
+    "pacstrap")
+       install_package_pacstrap ${MOUNTPOINT} ${*}
+       ;;
+    "chroot")
+      install_package_chroot ${MOUNTPOINT} ${*}
+      ;;
+    *)
       echo "instalation-mode (pactsrap | chroot)"
       exit 3
     esac
-    shift
-  done
 
   log " packages installation done!\n"
+}
+
+# ${1} = packages' name
+install_system(){
+  # create all directories if needed
+  if [[ "${INSTALLATION_MODE}" == "chroot" ]]; then
+    mkdir -p "${MOUNTPOINT}"/var/{cache/pacman/pkg,lib/pacman} "${MOUNTPOINT}"/{home,dev,proc,sys,run,tmp,etc,boot,root}
+  fi
+  # install base system packages
+  install_packages ${*}  
 }
 
 # ${1} bootloader's name
@@ -222,28 +219,21 @@ configure_bootloader(){
   log "bootloader installation done!\n"
 }
 
-# ${1} pacman optimisation
+
 optimize_pacman(){
-  if [[ ${1} -eq 1 ]];
-    then
-      log "pacman optimisation start ..."
-      install_packages reflector
-      chroot ${MOUNTPOINT} reflector --verbose -l 200 --sort rate --save ${ARCH_SYS}/etc/pacman.d/mirrorlist
-      log "pacman optimisation done!\n"
-        
-  fi
+  log "pacman optimisation start ..."
+  chroot ${MOUNTPOINT} reflector --verbose -l 200 --sort rate --save ${ARCH_SYS}/etc/pacman.d/mirrorlist
+  log "pacman optimisation done!\n"
 }
 
-configure(){
+configure_system(){
   log "system configuration start ...\n"
   # generate the fstab
   log "fstab generation start ..."
-  touch ${MOUNTPOINT}/etc/fstab
   genfstab -U ${MOUNTPOINT} >> ${MOUNTPOINT}/etc/fstab
   log "fstab generation done!\n"
   # set the computer's name
   log "system's name definition start ..."
-  touch ${MOUNTPOINT}/etc/hostname
   echo ${SYSTEM_NAME} >> ${MOUNTPOINT}/etc/hostname
   log "system's name definition done!\n"
 
@@ -255,7 +245,6 @@ configure(){
   # set the local
   log "local definition start ..."
   mv ${MOUNTPOINT}/etc/local.gen ${MOUNTPOINT}/etc/local.gen.bkp
-  touch ${MOUNTPOINT}/etc/local.gen
   echo ${LOCALE}\ UTF-8 >> ${MOUNTPOINT}/etc/local.gen
   echo ${LOCALE}\ ISO-8859-1>> ${MOUNTPOINT}/etc/local.gen
   chroot ${MOUNTPOINT}  locale-gen
@@ -272,10 +261,15 @@ configure(){
   chroot ${MOUNTPOINT} mkinitcpio -p linux
   log "RAM disk creation done!\n"
 
-
   # optimise pacman
-  optimize_pacman ${PACMAN_OPTIMISATION}
- 
+  if [[ ${PACMAN_OPTIMISATION} -eq 1 ]];
+    then
+      log "pacman optimisation start ..."
+      optimize_pacman
+      log "pacman optimisation done!\n"
+        
+  fi
+  
   # configure bootloader
   configure_bootloader ${BOOTLOADER}
 
@@ -291,22 +285,12 @@ echo "Installation start ..."
 parseparameters $*
 # print the summary
 printsummary
-
 # update pacman
 pacman -Sy
-# create all directories if needed
-if [[ "${INSTALLATION_MODE}" == "chroot" ]]; then
-  mkdir -p "${MOUNTPOINT}"/var/{cache/pacman/pkg,lib/pacman} "${MOUNTPOINT}"/{dev,proc,sys,run,tmp,etc,boot,root}
-fi
-# install base system packages
-install_packages ${PACKAGES}
-# install X server if needed
-if [[ ${INSTALl_X_SERVER} ]]; then
-  install_packages ${X_SERVER_PACKAGES}
-  chroot ${MOUNTPOINT} cp /etc/skel/.xinitrc ~
-fi
+# install the system
+install_system ${PACKAGES}
 # configure base system
-configure
+configure_system
 # unmount all mounted partitions
 unmount_all_partitions
 echo "Your archlinux installation is done ;)"
