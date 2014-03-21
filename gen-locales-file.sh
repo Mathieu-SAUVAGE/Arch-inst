@@ -548,7 +548,7 @@ delete_file(){
 	fi
 }
 
-parse_options  $*
+parse_options $*
 if [[ $# -lt 1 ]]; then
 	print_usage
 	exit 1

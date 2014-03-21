@@ -34,7 +34,7 @@ log(){
 		echo -e $*
 	fi
 }
-printhelp(){
+print_help(){
 	echo "-b | --bootloader (grub | syslinux)           Define the bootloader to installation. If this option is not used syslinux is installed by defaut."
 	echo "-i | --instalation_mode (pacstrap | chroot)   Define the installation mode. By defaut ${0} will use pacstrap mode."
 	echo "-k | --keymap                                 Define the new system's locale. By default ${0} will use en_US."
@@ -50,7 +50,7 @@ print_usage(){
 	echo "In order to list options do arch-inst -h."
 }
 
-printsummary(){
+print_summary(){
 	log "\nsummary :"
 	log "--------------------------------------------"
 	log "System's name = "${SYSTEM_NAME}
@@ -73,7 +73,7 @@ printsummary(){
 	log "--------------------------------------------"
 }
 
-parseparameters(){
+parse_parameters(){
 	ARGS=$(getopt -c $0 -o vhob:m:l:k:i:t: -l "verbose,help,pacman_optimisation,bootloader:,mountpoint:,locale:,keymap:,installation_mode:,localtime:" -n "getopt.sh" -- "$@");
 	eval set -- ${ARGS};
 
@@ -84,7 +84,7 @@ parseparameters(){
 			shift
 			;;
 		-h|--help)
-			printhelp
+			print_help
 			exit 0
 			;;
 		-b|--bootloader)
@@ -197,21 +197,32 @@ configure_bootloader(){
 			;;
 		${GRUB})
 			log "grub configuration"
-			grub-install --target=i386-pc --recheck --debug ${TARGET}
-			grub-mkconfig -o /boot/grub/grub.cfg
+			NB_PARTITION=ls | grep -c ${TARGET}
+			if [ NB_PARTITION -gt 1 ]; then
+				grub-install --target=i386-pc --recheck --debug ${TARGET}
+			else
+				chattr -i /boot/grub/i386-pc/core.img
+				grub-install --target=i386-pc --recheck --debug --force ${TARGET}
+				chattr +i /boot/grub/i386-pc/core.img
+			fi
 			chroot ${MOUNTPOINT} vim /boot/grub/grub.cfg
 			;;
 		*)
 			echo "bootloader (syslinux | grub)"
 			exit 4
 	esac
+	grub-mkconfig -o /boot/grub/grub.cfg
 	log "bootloader installation done!\n"
 }
 
 
 optimize_pacman(){
 	log "pacman optimisation start ..."
-	chroot ${MOUNTPOINT} reflector --verbose -l 200 --sort rate --save ${ARCHITECTURE}/etc/pacman.d/mirrorlist
+	if [ ${VERBOSE} -eq 1 ]; then
+		chroot ${MOUNTPOINT} reflector --verbose -l ${2} --sort ${1} --save ${ARCHITECTURE}/etc/pacman.d/mirrorlist
+	else
+		chroot ${MOUNTPOINT} reflector -l ${2} --sort ${1} --save ${ARCHITECTURE}/etc/pacman.d/mirrorlist
+	fi
 	log "pacman optimisation done!\n"
 }
 
@@ -249,7 +260,7 @@ configure_system(){
 	if [[ ${PACMAN_OPTIMISATION} -eq 1 ]];
 	then
 		log "pacman optimisation start ..."
-		optimize_pacman
+		optimize_pacman rate 200
 		log "pacman optimisation done!\n"
 	fi
 	# configure bootloader
@@ -258,16 +269,16 @@ configure_system(){
 }
 
 unmount_all_partitions(){
-	log "Unmout all partitions!\n"
+	log "Unmout all partitions ...\n"
 	umount -R ${MOUNTPOINT}
 	log "All partition unmounted!\n"
 }
  
 echo "Installation start ..."
 # parse script parameters
-parseparameters $*
+parse_parameters $*
 # print the summary
-printsummary
+print_summary
 # install the system
 install_system
 # configure base system
